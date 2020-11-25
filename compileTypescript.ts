@@ -6,19 +6,26 @@
 // run from root dir, i.e. scripts/compileTypescript.ts incremental
 
 import * as ts from "typescript";
+import readLine from "readline";
 
-const cachePath = "output/cache";
+const cachePath = "output";
+
+const isBuildInfo = (path: string) => path.includes("buildinfo");
 
 const system: ts.System = {
   ...ts.sys,
-  write: (s) => console.log(s),
+  //  write: (s) => console.log(s),
   readFile: (path, encoding) => {
-    if (path.includes("buildinfo")) {
+    if (isBuildInfo(path)) {
       console.log(`reading buildinfo from ${path}`);
     }
     return ts.sys.readFile(path, encoding);
   },
   writeFile: (path, data, writeByteOrderMark) => {
+    if (!isBuildInfo(path)) {
+      // console.log(`skipping writing of ${path} (${data.length} chars)`);
+      // return;
+    }
     return ts.sys.writeFile(path, data, writeByteOrderMark);
   },
 };
@@ -52,11 +59,13 @@ function reportDiagnostic(diagnostic: ts.Diagnostic) {
   );
 }
 
+const myResolvePath = (s: string) => system.resolvePath(s);
+
 const compilerOptions = (): ts.CompilerOptions => ({
-  tsBuildInfoFile: `${cachePath}/buildinfo.tsbuildinfo`,
+  tsBuildInfoFile: myResolvePath(`${cachePath}/buildfile.tsbuildinfo`),
   incremental: true,
   noEmit: false,
-  outDir: `${cachePath}/out/`,
+  outDir: myResolvePath(`${cachePath}/out`),
   sourceMap: true,
 });
 
@@ -80,6 +89,21 @@ function writeDiagnostics(diagnostics: ReadonlyArray<ts.Diagnostic>) {
   });
 }
 
+const emitFile: ts.WriteFileCallback = (
+  fileName,
+  data,
+  writeByteOrderMark,
+  _,
+  sourceFiles
+) => {
+  console.log(
+    `emitting ${fileName} for ${
+      sourceFiles?.map((f) => f.fileName).join("+") ?? "??"
+    }`
+  );
+  system.writeFile(fileName, data, writeByteOrderMark);
+};
+
 function emitAllAffectedFiles<T extends ts.BuilderProgram>(program: T) {
   console.log("emitAllAffectedFiles invoked");
   const diagnostics = [
@@ -94,13 +118,7 @@ function emitAllAffectedFiles<T extends ts.BuilderProgram>(program: T) {
   /**
    * "emit" without a sourcefile will process all changed files, including the buildinfo file
    */
-  const emitResult = program.emit(
-    undefined,
-    (fileName, data, writeByteOrderMark) => {
-      console.log(`emitting ${fileName}`);
-      system.writeFile(fileName, data, writeByteOrderMark);
-    }
-  );
+  const emitResult = program.emit(undefined, emitFile);
   emitResult.emittedFiles?.forEach((emittedFile) =>
     console.log(`Emitted ${emittedFile}`)
   );
@@ -225,8 +243,7 @@ function incrementalMain() {
     options: config.options,
     configFileParsingDiagnostics: ts.getConfigFileParsingDiagnostics(config),
     projectReferences: config.projectReferences,
-    // createProgram can be passed in here to choose strategy for incremental compiler just like when creating incremental watcher program.
-    // Default is ts.createSemanticDiagnosticsBuilderProgram
+    createProgram: ts.createEmitAndSemanticDiagnosticsBuilderProgram,
   });
   const emitResult = emitAllAffectedFiles(program);
   console.log(
@@ -243,12 +260,31 @@ function reportWatchStatusChanged(diagnostic: ts.Diagnostic) {
     `reportWatchStatusChanged: ${ts.formatDiagnostic(diagnostic, formatHost)}`
   );
 }
+const rl = readLine.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
 
 const variant = (process.argv[2] || "watch").toLowerCase();
 console.log(`Compiling using ${variant} mode`);
 switch (variant) {
   case "watch":
-    watchMain();
+    const watch = watchMain();
+    rl.question("Press enter to exit", () => {
+      // // Test that we can force create a missing output file
+      // if (!system.fileExists(`${cachePath}/out/Hello.js`)) {
+      //   console.log("Forcing compilation of a file");
+      //   const program = watch.getProgram();
+      //   const sourceFilePath = "src/Hello.tsx";
+      //   const sourceFile = program.getSourceFile(sourceFilePath);
+      //   if (!sourceFile) {
+      //     console.error("Source file not found");
+      //   } else {
+      //     program.emit(sourceFile, emitFile);
+      //   }
+      // }
+      watch.close();
+    });
     break;
   case "incremental":
     incrementalMain();

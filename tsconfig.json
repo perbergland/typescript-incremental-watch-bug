@@ -2,7 +2,7 @@
   "compilerOptions": {
     /* Basic Options */
     "target": "ESNext",
-    "module": "ESNext",
+    "module": "CommonJS",
     "lib": ["esnext", "dom"],
     "allowJs": true,
     "checkJs": false,
@@ -34,5 +34,5 @@
     "esModuleInterop": true,
     "preserveSymlinks": true
   },
-  "exclude": ["scripts/**", "output/**"]
+  "exclude": ["compileTypescript.*", "output/**"]
 }
