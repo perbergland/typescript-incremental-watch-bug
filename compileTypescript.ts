@@ -3,7 +3,7 @@
 // Code mostly from the typescript-wiki, unmerged PR #225
 // https://github.com/microsoft/TypeScript-wiki/blob/ad7afb1b7049be5ac59ba55dce9a647390ee8481/Using-the-Compiler-API.md
 
-// run from root dir, i.e. scripts/compileTypescript.ts incremental
+// run from root dir, i.e. ./compileTypescript.ts incremental
 
 import * as ts from "typescript";
 import readLine from "readline";
@@ -59,7 +59,9 @@ function reportDiagnostic(diagnostic: ts.Diagnostic) {
   );
 }
 
-const myResolvePath = (s: string) => system.resolvePath(s);
+let triggerBug = false;
+
+const myResolvePath = (s: string) => (triggerBug ? s : system.resolvePath(s));
 
 const compilerOptions = (): ts.CompilerOptions => ({
   tsBuildInfoFile: myResolvePath(`${cachePath}/buildfile.tsbuildinfo`),
@@ -143,20 +145,6 @@ function watchMain() {
     throw new Error("Could not find a valid 'tsconfig.json'.");
   }
 
-  // TypeScript can use several different program creation "strategies":
-  //  * ts.createEmitAndSemanticDiagnosticsBuilderProgram,
-  //  * ts.createSemanticDiagnosticsBuilderProgram
-  //  * ts.createAbstractBuilder
-  // The first two produce "builder programs". These use an incremental strategy
-  // to only re-check and emit files whose contents may have changed, or whose
-  // dependencies may have changes which may impact change the result of prior
-  // type-check and emit.
-  // The last uses an ordinary program which does a full type check after every
-  // change.
-  // Between `createEmitAndSemanticDiagnosticsBuilderProgram` and
-  // `createSemanticDiagnosticsBuilderProgram`, the only difference is emit.
-  // For pure type-checking scenarios, or when another tool/process handles emit,
-  // using `createSemanticDiagnosticsBuilderProgram` may be more desirable.
   const createProgram = ts.createEmitAndSemanticDiagnosticsBuilderProgram;
 
   // Note that there is another overload for `createWatchCompilerHost` that takes
@@ -180,30 +168,6 @@ function watchMain() {
     return origCreateProgram(rootNames, options, host, oldProgram);
   };
 
-  // const origPostProgramCreate = host.afterProgramCreate;
-  // const customAfterProgramCreate: typeof host.afterProgramCreate = (
-  //   program
-  // ) => {
-  //   const { emit: origEmit } = program;
-  //   console.log("** We finished making the program! **");
-  //   origPostProgramCreate?.({
-  //     ...program,
-  //     emit: (targetSourceFile, origWriteFile, ...emitRest) => {
-  //       const writeFile: typeof origWriteFile = (path, ...rest) => {
-  //         console.log(`emitting ${path} writeFile`);
-  //         const realWriteFile = origWriteFile ?? system.writeFile;
-  //         realWriteFile(path, ...rest);
-  //       };
-  //       console.log(`Emitting`);
-  //       const result = origEmit(targetSourceFile, writeFile, ...emitRest);
-  //       result.emittedFiles?.forEach((emittedFile) =>
-  //         console.log(`Emitted ${emittedFile}`)
-  //       );
-  //       console.log(`Emitting complete`);
-  //       return result;
-  //     },
-  //   });
-  // };
   host.afterProgramCreate = emitAllAffectedFiles;
 
   // `createWatchProgram` creates an initial program, watches files, and updates
@@ -265,24 +229,19 @@ const rl = readLine.createInterface({
   output: process.stdout,
 });
 
-const variant = (process.argv[2] || "watch").toLowerCase();
-console.log(`Compiling using ${variant} mode`);
+// const variant = (process.argv[2] || "watch").toLowerCase();
+// console.log(`Compiling using ${variant} mode`);
+const variant: string = "incremental";
+
+if (process.argv[2]?.toLowerCase() === "triggerbug") {
+  triggerBug = true;
+  console.log(`Triggering the bug by not resolving paths`);
+}
+
 switch (variant) {
   case "watch":
     const watch = watchMain();
     rl.question("Press enter to exit", () => {
-      // // Test that we can force create a missing output file
-      // if (!system.fileExists(`${cachePath}/out/Hello.js`)) {
-      //   console.log("Forcing compilation of a file");
-      //   const program = watch.getProgram();
-      //   const sourceFilePath = "src/Hello.tsx";
-      //   const sourceFile = program.getSourceFile(sourceFilePath);
-      //   if (!sourceFile) {
-      //     console.error("Source file not found");
-      //   } else {
-      //     program.emit(sourceFile, emitFile);
-      //   }
-      // }
       watch.close();
     });
     break;
@@ -294,3 +253,5 @@ switch (variant) {
     process.exit(2);
     break;
 }
+
+rl.close();
