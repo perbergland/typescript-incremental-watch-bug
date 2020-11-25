@@ -1,6 +1,6 @@
 # typescript-incremental-watch-bug
 
-Reproduction project for a typescript bug (github issue tbd).
+Reproduction project for a typescript bug - https://github.com/microsoft/TypeScript/issues/41690
 
 
 ## Prerequisites (these must be installed)
