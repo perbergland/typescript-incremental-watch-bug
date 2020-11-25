@@ -9,7 +9,27 @@ import * as ts from "typescript";
 
 const cachePath = "output/cache";
 
-function writeDiagnosticMessage(diagnostics: ts.Diagnostic, message: string) {
+const system: ts.System = {
+  ...ts.sys,
+  write: (s) => console.log(s),
+  readFile: (path, encoding) => {
+    if (path.includes("buildinfo")) {
+      console.log(`reading buildinfo from ${path}`);
+    }
+    return ts.sys.readFile(path, encoding);
+  },
+  writeFile: (path, data, writeByteOrderMark) => {
+    return ts.sys.writeFile(path, data, writeByteOrderMark);
+  },
+};
+
+function writeDiagnosticMessage(
+  diagnostics: ts.Diagnostic,
+  customMessage?: string
+) {
+  const message =
+    customMessage ||
+    ts.flattenDiagnosticMessageText(diagnostics.messageText, system.newLine);
   switch (diagnostics.category) {
     case ts.DiagnosticCategory.Error:
       return console.error(message);
@@ -32,24 +52,13 @@ function reportDiagnostic(diagnostic: ts.Diagnostic) {
   );
 }
 
-const compilerOptions: ts.CompilerOptions = {
+const compilerOptions = (): ts.CompilerOptions => ({
   tsBuildInfoFile: `${cachePath}/buildinfo.tsbuildinfo`,
   incremental: true,
   noEmit: false,
   outDir: `${cachePath}/out/`,
   sourceMap: true,
-};
-
-const system: ts.System = {
-  ...ts.sys,
-  write: (s) => console.log(s),
-  readFile: (path, encoding) => {
-    if (path.includes("buildinfo")) {
-      console.log(`reading buildinfo from ${path}`);
-    }
-    return ts.sys.readFile(path, encoding);
-  },
-};
+});
 
 function writeDiagnostics(diagnostics: ReadonlyArray<ts.Diagnostic>) {
   diagnostics.forEach((diagnostic) => {
@@ -66,10 +75,7 @@ function writeDiagnostics(diagnostics: ReadonlyArray<ts.Diagnostic>) {
         `${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`
       );
     } else {
-      writeDiagnosticMessage(
-        diagnostic,
-        `${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`
-      );
+      writeDiagnosticMessage(diagnostic);
     }
   });
 }
@@ -139,7 +145,7 @@ function watchMain() {
   // a set of root files.
   const host = ts.createWatchCompilerHost(
     configPath,
-    compilerOptions,
+    compilerOptions(),
     system,
     createProgram,
     reportDiagnostic,
@@ -202,17 +208,19 @@ function incrementalMain() {
 
   const config = ts.getParsedCommandLineOfConfigFile(
     configPath,
-    /*optionsToExtend*/ compilerOptions,
+    /*optionsToExtend*/ compilerOptions(),
     /*host*/ {
       ...ts.sys,
-      onUnRecoverableConfigFileDiagnostic: (d) => writeDiagnosticMessage(d, ""),
+      onUnRecoverableConfigFileDiagnostic: (d) => writeDiagnosticMessage(d),
     }
   );
   if (!config) {
     throw new Error("Could not parse 'tsconfig.json'.");
   }
 
+  const host = ts.createIncrementalCompilerHost(config.options, system);
   const program = ts.createIncrementalProgram({
+    host,
     rootNames: config.fileNames,
     options: config.options,
     configFileParsingDiagnostics: ts.getConfigFileParsingDiagnostics(config),
