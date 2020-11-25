@@ -1,0 +1,12 @@
+{
+  "name": "typescript-incremental-watch-bug",
+  "version": "1.0.0",
+  "description": "Reproduction of Typescript Compiler API bug",
+  "main": "index.js",
+  "repository": "https://github.com/perbergland/typescript-incremental-watch-bug",
+  "author": "perbergland",
+  "license": "MIT",
+  "dependencies": {
+    "typescript": "^4.1.2"
+  }
+}
