@@ -233,6 +233,7 @@ const rl = readLine.createInterface({
 // console.log(`Compiling using ${variant} mode`);
 const variant: string = "incremental";
 
+console.log(`Typescript ${ts.version}`);
 if (process.argv[2]?.toLowerCase() === "triggerbug") {
   triggerBug = true;
   console.log(`Triggering the bug by not resolving paths`);

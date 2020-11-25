@@ -13,9 +13,9 @@ Reproduction project for a typescript bug (github issue tbd).
 
 * Check out repo locally
 * yarn install
-* ./compileTypescript.ts triggerbug
+* ./node_modules/.bin/ts-node-script compileTypescript.ts triggerbug
 
 Notice that every time compilation is invoked, the Hello.tsx is recompiled (emitted)
 
-If you instead invoke it with ./compileTypescript.ts, it will only be recompiled if there have been changes
+If you instead invoke it with ./node_modules/.bin/ts-node-script compileTypescript.ts, it will only be recompiled if there have been changes
 
