@@ -29,10 +29,10 @@
       "/*": ["*"]
     },
     "moduleResolution": "node",
+    "types": ["node"],
     "resolveJsonModule": true,
-    "types": ["node", "mocha"],
     "esModuleInterop": true,
     "preserveSymlinks": true
   },
-  "exclude": ["scripts/**", "outfiles/**"]
+  "exclude": ["scripts/**", "output/**"]
 }

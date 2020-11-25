@@ -1,8 +1,13 @@
 #!/usr/bin/env ts-node-script
 
-// run from root dir, i.e. scripts/compilerWatchTest.ts
+// Code mostly from the typescript-wiki, unmerged PR #225
+// https://github.com/microsoft/TypeScript-wiki/blob/ad7afb1b7049be5ac59ba55dce9a647390ee8481/Using-the-Compiler-API.md
+
+// run from root dir, i.e. scripts/compileTypescript.ts incremental
 
 import * as ts from "typescript";
+
+const cachePath = "output/cache";
 
 function writeDiagnosticMessage(diagnostics: ts.Diagnostic, message: string) {
   switch (diagnostics.category) {
@@ -15,7 +20,38 @@ function writeDiagnosticMessage(diagnostics: ts.Diagnostic, message: string) {
   }
 }
 
-function writeDiagnostics(diagnostics: ts.Diagnostic[]) {
+function reportDiagnostic(diagnostic: ts.Diagnostic) {
+  console.error(
+    "Error",
+    diagnostic.code,
+    ":",
+    ts.flattenDiagnosticMessageText(
+      diagnostic.messageText,
+      formatHost.getNewLine()
+    )
+  );
+}
+
+const compilerOptions: ts.CompilerOptions = {
+  tsBuildInfoFile: `${cachePath}/buildinfo.tsbuildinfo`,
+  incremental: true,
+  noEmit: false,
+  outDir: `${cachePath}/out/`,
+  sourceMap: true,
+};
+
+const system: ts.System = {
+  ...ts.sys,
+  write: (s) => console.log(s),
+  readFile: (path, encoding) => {
+    if (path.includes("buildinfo")) {
+      console.log(`reading buildinfo from ${path}`);
+    }
+    return ts.sys.readFile(path, encoding);
+  },
+};
+
+function writeDiagnostics(diagnostics: ReadonlyArray<ts.Diagnostic>) {
   diagnostics.forEach((diagnostic) => {
     if (diagnostic.file) {
       let { line, character } = diagnostic.file.getLineAndCharacterOfPosition(
@@ -51,20 +87,20 @@ function emitAllAffectedFiles<T extends ts.BuilderProgram>(program: T) {
 
   /**
    * "emit" without a sourcefile will process all changed files, including the buildinfo file
-   * so we need to write it out if it changed.
-   * Then we can also tell which files were recompiled and put the data into the cache.
    */
   const emitResult = program.emit(
     undefined,
     (fileName, data, writeByteOrderMark) => {
       console.log(`emitting ${fileName}`);
-      ts.sys.writeFile(fileName, data, writeByteOrderMark);
+      system.writeFile(fileName, data, writeByteOrderMark);
     }
   );
   emitResult.emittedFiles?.forEach((emittedFile) =>
     console.log(`Emitted ${emittedFile}`)
   );
   console.log(`Emitting complete`);
+  writeDiagnostics(emitResult.diagnostics);
+  return emitResult;
 }
 
 export const formatHost: ts.FormatDiagnosticsHost = {
@@ -73,12 +109,10 @@ export const formatHost: ts.FormatDiagnosticsHost = {
   getNewLine: () => ts.sys.newLine,
 };
 
-const cachePath = "output/cache";
-
 function watchMain() {
   const configPath = ts.findConfigFile(
     /*searchPath*/ "./",
-    ts.sys.fileExists,
+    system.fileExists,
     "tsconfig.json"
   );
   if (!configPath) {
@@ -105,23 +139,8 @@ function watchMain() {
   // a set of root files.
   const host = ts.createWatchCompilerHost(
     configPath,
-    {
-      tsBuildInfoFile: `${cachePath}/buildinfo.tsbuildinfo`,
-      incremental: true,
-      noEmit: false,
-      outDir: `${cachePath}/out/`,
-      sourceMap: true,
-    },
-    {
-      ...ts.sys,
-      write: (s) => console.log(s),
-      readFile: (path, encoding) => {
-        if (path.includes("buildinfo")) {
-          console.log(`reading ${path}`);
-        }
-        return ts.sys.readFile(path, encoding);
-      },
-    },
+    compilerOptions,
+    system,
     createProgram,
     reportDiagnostic,
     reportWatchStatusChanged
@@ -137,32 +156,30 @@ function watchMain() {
     return origCreateProgram(rootNames, options, host, oldProgram);
   };
 
-  const origPostProgramCreate = host.afterProgramCreate;
-  const customAfterProgramCreate: typeof host.afterProgramCreate = (
-    program
-  ) => {
-    const { emit: origEmit } = program;
-    console.log("** We finished making the program! **");
-    origPostProgramCreate?.({
-      ...program,
-      emit: (targetSourceFile, origWriteFile, ...emitRest) => {
-        const writeFile: typeof origWriteFile = (path, ...rest) => {
-          console.log(`emitting ${path} writeFile`);
-          const realWriteFile = origWriteFile ?? ts.sys.writeFile;
-          realWriteFile(path, ...rest);
-        };
-        console.log(`Emitting`);
-        const result = origEmit(targetSourceFile, writeFile, ...emitRest);
-        result.emittedFiles?.forEach((emittedFile) =>
-          console.log(`Emitted ${emittedFile}`)
-        );
-        console.log(`Emitting complete`);
-        return result;
-      },
-    });
-    if (customAfterProgramCreate) {
-    }
-  };
+  // const origPostProgramCreate = host.afterProgramCreate;
+  // const customAfterProgramCreate: typeof host.afterProgramCreate = (
+  //   program
+  // ) => {
+  //   const { emit: origEmit } = program;
+  //   console.log("** We finished making the program! **");
+  //   origPostProgramCreate?.({
+  //     ...program,
+  //     emit: (targetSourceFile, origWriteFile, ...emitRest) => {
+  //       const writeFile: typeof origWriteFile = (path, ...rest) => {
+  //         console.log(`emitting ${path} writeFile`);
+  //         const realWriteFile = origWriteFile ?? system.writeFile;
+  //         realWriteFile(path, ...rest);
+  //       };
+  //       console.log(`Emitting`);
+  //       const result = origEmit(targetSourceFile, writeFile, ...emitRest);
+  //       result.emittedFiles?.forEach((emittedFile) =>
+  //         console.log(`Emitted ${emittedFile}`)
+  //       );
+  //       console.log(`Emitting complete`);
+  //       return result;
+  //     },
+  //   });
+  // };
   host.afterProgramCreate = emitAllAffectedFiles;
 
   // `createWatchProgram` creates an initial program, watches files, and updates
@@ -170,15 +187,42 @@ function watchMain() {
   return ts.createWatchProgram(host);
 }
 
-function reportDiagnostic(diagnostic: ts.Diagnostic) {
-  console.error(
-    "Error",
-    diagnostic.code,
-    ":",
-    ts.flattenDiagnosticMessageText(
-      diagnostic.messageText,
-      formatHost.getNewLine()
-    )
+/**
+ * Performs one incremental compilation of the sources
+ */
+function incrementalMain() {
+  const configPath = ts.findConfigFile(
+    /*searchPath*/ "./",
+    system.fileExists,
+    "tsconfig.json"
+  );
+  if (!configPath) {
+    throw new Error("Could not find a valid 'tsconfig.json'.");
+  }
+
+  const config = ts.getParsedCommandLineOfConfigFile(
+    configPath,
+    /*optionsToExtend*/ compilerOptions,
+    /*host*/ {
+      ...ts.sys,
+      onUnRecoverableConfigFileDiagnostic: (d) => writeDiagnosticMessage(d, ""),
+    }
+  );
+  if (!config) {
+    throw new Error("Could not parse 'tsconfig.json'.");
+  }
+
+  const program = ts.createIncrementalProgram({
+    rootNames: config.fileNames,
+    options: config.options,
+    configFileParsingDiagnostics: ts.getConfigFileParsingDiagnostics(config),
+    projectReferences: config.projectReferences,
+    // createProgram can be passed in here to choose strategy for incremental compiler just like when creating incremental watcher program.
+    // Default is ts.createSemanticDiagnosticsBuilderProgram
+  });
+  const emitResult = emitAllAffectedFiles(program);
+  console.log(
+    `Incremental compilation ${emitResult.emitSkipped ? "failed" : "succeeded"}`
   );
 }
 
@@ -187,10 +231,22 @@ function reportDiagnostic(diagnostic: ts.Diagnostic) {
  * This is mainly for messages like "Starting compilation" or "Compilation completed".
  */
 function reportWatchStatusChanged(diagnostic: ts.Diagnostic) {
-  console.info("reportWatchStatusChanged");
-  console.info(ts.formatDiagnostic(diagnostic, formatHost));
+  console.info(
+    `reportWatchStatusChanged: ${ts.formatDiagnostic(diagnostic, formatHost)}`
+  );
 }
 
-const watch = watchMain();
-if (watch) {
+const variant = (process.argv[2] || "watch").toLowerCase();
+console.log(`Compiling using ${variant} mode`);
+switch (variant) {
+  case "watch":
+    watchMain();
+    break;
+  case "incremental":
+    incrementalMain();
+    break;
+  default:
+    console.error(`Unknown variant ${variant}`);
+    process.exit(2);
+    break;
 }
